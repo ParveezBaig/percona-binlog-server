@@ -1,0 +1,25 @@
+
+*** Testing connection using a valid DNS SRV name
+*** MTR_BINSRV_DNS_SRV_NAME must point to the MySQL server.
+
+*** Resetting replication at the very beginning of the test.
+
+*** Creating a simple table and filling it with some data.
+CREATE TABLE t1(id INT UNSIGNED NOT NULL AUTO_INCREMENT, PRIMARY KEY(id)) ENGINE=InnoDB;
+INSERT INTO t1 VALUES(DEFAULT);
+FLUSH BINARY LOGS;
+
+*** Generating a configuration file in JSON format for the Binlog
+*** Server utility.
+
+*** Determining binlog file directory from the server.
+
+*** Creating a temporary directory <BINSRV_STORAGE_PATH> for storing
+*** binlog files downloaded via the Binlog Server utility.
+
+*** Testing fetch with valid DNS SRV name
+
+*** Verifying that binlog was fetched successfully
+DROP TABLE t1;
+
+*** Cleaning up test environment

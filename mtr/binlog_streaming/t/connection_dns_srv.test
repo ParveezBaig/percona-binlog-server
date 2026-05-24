@@ -1,0 +1,88 @@
+--source ../include/have_binsrv.inc
+
+if ($MTR_BINSRV_DNS_SRV_NAME == '')
+{
+  --skip MTR_BINSRV_DNS_SRV_NAME environment variable must be set
+}
+
+--source ../include/v80_v84_compatibility_defines.inc
+
+# identifying backend storage type ('file' or 's3')
+--source ../include/identify_storage_backend.inc
+
+--echo
+--echo *** Testing connection using a valid DNS SRV name
+--echo *** MTR_BINSRV_DNS_SRV_NAME must point to the MySQL server.
+
+--echo
+--echo *** Resetting replication at the very beginning of the test.
+--disable_query_log
+eval $stmt_reset_binary_logs_and_gtids;
+--enable_query_log
+
+--echo
+--echo *** Determining the first fresh binary log name.
+--let $first_binlog = query_get_value($stmt_show_binary_log_status, File, 1)
+
+--echo
+--echo *** Creating a simple table and filling it with some data.
+CREATE TABLE t1(id INT UNSIGNED NOT NULL AUTO_INCREMENT, PRIMARY KEY(id)) ENGINE=InnoDB;
+INSERT INTO t1 VALUES(DEFAULT);
+FLUSH BINARY LOGS;
+
+--let $binsrv_connection_user = root
+--let $binsrv_connection_password =
+--let $binsrv_connect_timeout = 20
+--let $binsrv_read_timeout = 60
+--let $binsrv_idle_time = 10
+--let $binsrv_verify_checksum = TRUE
+--let $binsrv_replication_mode = position
+--source ../include/set_up_binsrv_environment.inc
+
+--disable_query_log
+eval SET @binsrv_config_json = JSON_REMOVE(@binsrv_config_json,
+  '$.connection.host',
+  '$.connection.port'
+);
+eval SET @binsrv_config_json = JSON_SET(@binsrv_config_json,
+  '$.connection.dns_srv_name', '$MTR_BINSRV_DNS_SRV_NAME'
+);
+--let $write_var = `SELECT @binsrv_config_json`
+--source include/write_var_to_file.inc
+--enable_query_log
+
+--echo
+--echo *** Testing fetch with valid DNS SRV name
+--exec $BINSRV fetch $binsrv_config_file_path > /dev/null
+
+--echo
+--echo *** Verifying that binlog files were written to storage
+--let $assert_text = First binlog should exist in storage
+--let $assert_file = $MYSQL_TMP_DIR/dns_srv_check.log
+if ($storage_backend == file)
+{
+  --exec ls -la $binsrv_storage_path/$first_binlog* > $assert_file 2>&1 || true
+}
+if ($storage_backend == s3)
+{
+  --exec $aws_cli s3 ls s3://$aws_s3_bucket/$binsrv_storage_path/$first_binlog > $assert_file 2>&1 || true
+}
+--let $assert_count = 2
+--let $assert_select = $first_binlog
+--source include/assert_grep.inc
+--remove_file $assert_file
+
+DROP TABLE t1;
+
+--echo
+--echo *** Cleaning up test environment
+if ($storage_backend == file)
+{
+  --force-rmdir $binsrv_storage_path
+}
+if ($storage_backend == s3)
+{
+  --exec $aws_cli s3 rm s3://$aws_s3_bucket/$binsrv_storage_path/ --recursive > /dev/null 2>&1 || true
+  --force-rmdir $binsrv_buffer_path
+}
+--exec rm -f $binsrv_log_path $binsrv_config_file_path
